@@ -163,19 +163,22 @@ func ValidateOCPVersion(version string) error {
 	return nil
 }
 
-// AnyOCPVersionGTE returns true if any version in the list is >= the threshold.
+// AllOCPVersionsGTE returns true if all versions in the list are >= the threshold.
 // Returns an error if any version or the threshold cannot be parsed.
-func AnyOCPVersionGTE(versions []string, threshold string) (bool, error) {
+func AllOCPVersionsGTE(versions []string, threshold string) (bool, error) {
+	if len(versions) == 0 {
+		return false, nil
+	}
 	for _, v := range versions {
 		gte, err := OCPVersionGTE(v, threshold)
 		if err != nil {
 			return false, err
 		}
-		if gte {
-			return true, nil
+		if !gte {
+			return false, nil
 		}
 	}
-	return false, nil
+	return true, nil
 }
 
 // OCPVersionGTE returns true if version >= threshold.

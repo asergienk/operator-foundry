@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/konflux-ci/operator-foundry/internal/cli/fbc"
 	"github.com/spf13/cobra"
 )
 
@@ -48,15 +49,7 @@ func NewRootCmd() *cobra.Command {
 	}
 
 	root.PersistentFlags().StringVar(&logLevel, "log-level", "info", "Log level: debug, info, warn, error")
-
-	fbc := &cobra.Command{
-		Use:   "fbc",
-		Short: "File-based catalog operations",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmd.Help()
-		},
-	}
-	root.AddCommand(fbc)
+	root.AddCommand(fbc.NewFBCCmd())
 
 	return root
 }

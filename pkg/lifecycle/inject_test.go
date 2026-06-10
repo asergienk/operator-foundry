@@ -44,7 +44,7 @@ func TestInjectLifecycleJSON_DestWithoutPackageName(t *testing.T) {
 		Dest: "/configs",
 	}
 
-	if err := InjectLifecycleJSON(lifecyclePath, base, "my-operator", entry); err != nil {
+	if _, err := InjectLifecycleJSON(lifecyclePath, base, "my-operator", entry); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -79,7 +79,7 @@ func TestInjectLifecycleJSON_DestWithPackageName(t *testing.T) {
 		Dest: "/configs/my-operator",
 	}
 
-	if err := InjectLifecycleJSON(lifecyclePath, base, "my-operator", entry); err != nil {
+	if _, err := InjectLifecycleJSON(lifecyclePath, base, "my-operator", entry); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -116,7 +116,7 @@ func TestInjectLifecycleJSON_MultipleSrcs_CorrectOneUsed(t *testing.T) {
 		Dest: "/configs",
 	}
 
-	if err := InjectLifecycleJSON(lifecyclePath, base, "my-operator", entry); err != nil {
+	if _, err := InjectLifecycleJSON(lifecyclePath, base, "my-operator", entry); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -126,7 +126,7 @@ func TestInjectLifecycleJSON_MultipleSrcs_CorrectOneUsed(t *testing.T) {
 	}
 }
 
-func TestInjectLifecycleJSON_PackageNotFound_ReturnsError(t *testing.T) {
+func TestInjectLifecycleJSON_PackageNotFound_ReturnsFalse(t *testing.T) {
 	base := t.TempDir()
 
 	if err := os.MkdirAll(filepath.Join(base, "catalog"), 0755); err != nil {
@@ -143,9 +143,12 @@ func TestInjectLifecycleJSON_PackageNotFound_ReturnsError(t *testing.T) {
 		Dest: "/configs",
 	}
 
-	err := InjectLifecycleJSON(lifecyclePath, base, "non-existent-operator", entry)
-	if err == nil {
-		t.Fatal("expected error when package directory not found, got nil")
+	wasInjected, err := InjectLifecycleJSON(lifecyclePath, base, "non-existent-operator", entry)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if wasInjected {
+		t.Fatal("expected wasInjected=false when package directory not found, got true")
 	}
 }
 
@@ -161,7 +164,7 @@ func TestInjectLifecycleJSON_MissingLifecycleFile_ReturnsError(t *testing.T) {
 		Dest: "/configs",
 	}
 
-	err := InjectLifecycleJSON("/nonexistent/lifecycle.json", base, "my-operator", entry)
+	_, err := InjectLifecycleJSON("/nonexistent/lifecycle.json", base, "my-operator", entry)
 	if err == nil {
 		t.Fatal("expected error for missing lifecycle.json source, got nil")
 	}
@@ -181,7 +184,7 @@ func TestInjectLifecycleJSON_BuildStageEntry_Rejects(t *testing.T) {
 		From: "builder",
 	}
 
-	err := InjectLifecycleJSON(lifecyclePath, base, "my-operator", entry)
+	_, err := InjectLifecycleJSON(lifecyclePath, base, "my-operator", entry)
 	if err == nil {
 		t.Fatal("expected error for build stage entry, got nil")
 	}
@@ -206,7 +209,7 @@ func TestInjectLifecycleJSON_RejectsPathTraversal(t *testing.T) {
 		Dest: "/configs",
 	}
 
-	err := InjectLifecycleJSON(lifecyclePath, base, "my-operator", entry)
+	_, err := InjectLifecycleJSON(lifecyclePath, base, "my-operator", entry)
 	if err == nil {
 		t.Fatal("expected error due to path traversal attempt, got nil")
 	}
@@ -235,7 +238,7 @@ func TestInjectLifecycleJSON_DestWithPkgButSrcIsCatalogRoot(t *testing.T) {
 		Dest: "/configs/my-operator",
 	}
 
-	if err := InjectLifecycleJSON(lifecyclePath, base, "my-operator", entry); err != nil {
+	if _, err := InjectLifecycleJSON(lifecyclePath, base, "my-operator", entry); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -272,7 +275,7 @@ func TestInjectLifecycleJSON_SymlinkPackageDir_ReturnsError(t *testing.T) {
 		Dest: "/configs",
 	}
 
-	err := InjectLifecycleJSON(lifecyclePath, base, "evil-operator", entry)
+	_, err := InjectLifecycleJSON(lifecyclePath, base, "evil-operator", entry)
 	if err == nil {
 		t.Fatal("expected error for symlinked package directory, got nil")
 	}
@@ -291,7 +294,7 @@ func TestInjectLifecycleJSON_DestTargetsDifferentPackage_ReturnsError(t *testing
 		Dest: "/configs/other-operator",
 	}
 
-	err := InjectLifecycleJSON(lifecyclePath, base, "my-operator", entry)
+	_, err := InjectLifecycleJSON(lifecyclePath, base, "my-operator", entry)
 	if err == nil {
 		t.Fatal("expected error when dest targets a different package, got nil")
 	}
@@ -324,7 +327,7 @@ func TestInjectLifecycleJSON_MultipleSources(t *testing.T) {
 		Dest: "/configs/my-operator",
 	}
 
-	err = InjectLifecycleJSON(lifecycleSourcePath, buildContext, "my-operator", entry)
+	_, err = InjectLifecycleJSON(lifecycleSourcePath, buildContext, "my-operator", entry)
 	if err != nil {
 		t.Fatalf("InjectLifecycleJSON returned unexpected error: %v", err)
 	}
@@ -338,9 +341,7 @@ func TestInjectLifecycleJSON_MultipleSources(t *testing.T) {
 	}
 }
 
-func TestInjectLifecycleJSON_DestWithDeepSubPath_ExtractsPkgCorrectly(t *testing.T) {
-	// COPY catalog/my-operator /configs/my-operator/subdir
-	// pkgFromDest should still extract "my-operator"
+func TestInjectLifecycleJSON_DestWithDeepSubPath_ReturnsError(t *testing.T) {
 	base := t.TempDir()
 
 	pkgDir := filepath.Join(base, "catalog", "my-operator")
@@ -358,12 +359,9 @@ func TestInjectLifecycleJSON_DestWithDeepSubPath_ExtractsPkgCorrectly(t *testing
 		Dest: "/configs/my-operator/subdir",
 	}
 
-	if err := InjectLifecycleJSON(lifecyclePath, base, "my-operator", entry); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if _, err := os.Stat(filepath.Join(pkgDir, "lifecycle.json")); err != nil {
-		t.Errorf("expected lifecycle.json in package dir: %v", err)
+	_, err := InjectLifecycleJSON(lifecyclePath, base, "my-operator", entry)
+	if err == nil {
+		t.Fatal("expected error for deep subpath dest, got nil")
 	}
 }
 
@@ -386,7 +384,7 @@ func TestInjectLifecycleJSON_BasenameCoincidence(t *testing.T) {
 		Dest: "/configs",
 	}
 
-	err := InjectLifecycleJSON(lifecycleSourcePath, buildContext, "my-operator", entry)
+	_, err := InjectLifecycleJSON(lifecycleSourcePath, buildContext, "my-operator", entry)
 	if err != nil {
 		t.Fatalf("InjectLifecycleJSON returned unexpected error: %v", err)
 	}
@@ -399,5 +397,37 @@ func TestInjectLifecycleJSON_BasenameCoincidence(t *testing.T) {
 	wrongPath := filepath.Join(outerCatalogRoot, "lifecycle.json")
 	if _, err := os.Stat(wrongPath); err == nil {
 		t.Errorf("lifecycle.json was incorrectly written to the catalog root due to basename coincidence")
+	}
+}
+
+func TestInjectLifecycleJSON_LifecycleAlreadyExists_ReturnsError(t *testing.T) {
+	base := t.TempDir()
+
+	pkgDir := filepath.Join(base, "catalog", "my-operator")
+	if err := os.MkdirAll(pkgDir, 0755); err != nil {
+		t.Fatalf("failed to create package dir: %v", err)
+	}
+
+	// Pre-create lifecycle.json to simulate duplicate injection
+	if err := os.WriteFile(filepath.Join(pkgDir, "lifecycle.json"), []byte(`{}`), 0644); err != nil {
+		t.Fatalf("failed to pre-create lifecycle.json: %v", err)
+	}
+
+	lifecyclePath := filepath.Join(base, "source-lifecycle.json")
+	if err := os.WriteFile(lifecyclePath, []byte(`{"schema": "io.openshift.operators.lifecycles.v1alpha1"}`), 0644); err != nil {
+		t.Fatalf("failed to write source lifecycle.json: %v", err)
+	}
+
+	entry := DockerfileCopyEntry{
+		Srcs: []string{"catalog"},
+		Dest: "/configs",
+	}
+
+	_, err := InjectLifecycleJSON(lifecyclePath, base, "my-operator", entry)
+	if err == nil {
+		t.Fatal("expected error when lifecycle.json already exists, got nil")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("expected 'already exists' error, got: %v", err)
 	}
 }

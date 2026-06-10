@@ -5,6 +5,33 @@ Go CLI for Konflux operator pipeline tasks
 
 ---
 
+## Usage
+
+### `fbc inject-lifecycle`
+
+Injects pre-generated `lifecycle.json` files into the catalog source directories
+for the given OLM packages. Injection is skipped if not all targeted OCP versions
+are >= 5.0.
+
+```bash
+operator-foundry fbc inject-lifecycle \
+  --dockerfile  \
+  --build-context  \
+  --packages  \
+  --lifecycle-dir 
+```
+
+| Scenario | Behavior |
+|---|---|
+| Dockerfile cannot be parsed | Exits with error |
+| Not all OCP versions >= 5.0 | Skips injection silently, exit 0 |
+| `lifecycle.json` missing for a package | Exits with error |
+| `lifecycle.json` already exists at destination | Exits with error — refuses to overwrite |
+| No matching catalog directory found for package | Exits with error |
+| Invalid package name (path traversal, empty) | Exits with error |
+| Destination path deeper than `/configs/<package-name>` | Exits with error — not a valid FBC path |
+---
+
 ## Development
 
 ### Prerequisites
@@ -26,6 +53,7 @@ make clean   # remove build artifacts
 ```bash
 ./bin/operator-foundry --help
 ./bin/operator-foundry fbc --help
+./bin/operator-foundry fbc inject-lifecycle --help
 ```
 
 ---

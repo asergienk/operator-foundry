@@ -278,11 +278,11 @@ func TestValidateOCPVersion_InvalidFormats(t *testing.T) {
 	}
 }
 
-// ── AnyOCPVersionGTE ──────────────────────────────────────────────────────────
+// ── AllOCPVersionsGTE ──────────────────────────────────────────────────────────
 
-func TestAnyOCPVersionGTE_ContainsMatchingVersion(t *testing.T) {
-	versions := []string{"4.20", "4.21", "5.0"}
-	got, err := AnyOCPVersionGTE(versions, "5.0")
+func TestAllOCPVersionsGTE_AllVersionsMeetThreshold(t *testing.T) {
+	versions := []string{"5.0", "5.1", "6.0"}
+	got, err := AllOCPVersionsGTE(versions, "5.0")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -291,9 +291,9 @@ func TestAnyOCPVersionGTE_ContainsMatchingVersion(t *testing.T) {
 	}
 }
 
-func TestAnyOCPVersionGTE_NoVersionAboveThreshold(t *testing.T) {
-	versions := []string{"4.20", "4.21", "4.23"}
-	got, err := AnyOCPVersionGTE(versions, "5.0")
+func TestAllOCPVersionsGTE_SomeVersionsBelowThreshold(t *testing.T) {
+	versions := []string{"4.20", "4.21", "5.0"}
+	got, err := AllOCPVersionsGTE(versions, "5.0")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -302,8 +302,19 @@ func TestAnyOCPVersionGTE_NoVersionAboveThreshold(t *testing.T) {
 	}
 }
 
-func TestAnyOCPVersionGTE_EmptyVersions(t *testing.T) {
-	got, err := AnyOCPVersionGTE([]string{}, "5.0")
+func TestAllOCPVersionsGTE_AllVersionsBelowThreshold(t *testing.T) {
+	versions := []string{"4.20", "4.21", "4.23"}
+	got, err := AllOCPVersionsGTE(versions, "5.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got {
+		t.Error("expected false, got true")
+	}
+}
+
+func TestAllOCPVersionsGTE_EmptyVersions(t *testing.T) {
+	got, err := AllOCPVersionsGTE([]string{}, "5.0")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
