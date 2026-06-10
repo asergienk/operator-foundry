@@ -31,30 +31,47 @@ import (
 //   - COPY catalog/my-operator /configs/my-operator → writes to <buildContextPath>/catalog/my-operator/lifecycle.json
 //   - COPY catalog /configs/my-operator             → writes to <buildContextPath>/catalog/my-operator/lifecycle.json
 //
-// entries must already have variables resolved — use ParseCopyInstructionsForConfigs to obtain them.
-func InjectLifecycleJSON(lifecycleJSONPath, buildContextPath, pkg string, entry DockerfileCopyEntry) error {
+// Return values:
+//   - (true, nil)  — lifecycle.json was successfully injected
+//   - (false, nil) — no matching catalog directory found; not an error,
+//     the caller is responsible for deciding whether to treat this as a failure
+//   - (false, err) — an error occurred during injection
+//
+// entry must already have variables resolved — use ParseCopyInstructionsForConfigs to obtain them.
+//
+// Note: this function is not idempotent. If lifecycle.json already exists at the
+// destination, it returns an error rather than overwriting the existing file.
+//
+// Known constraint: destination paths deeper than /configs/<package-name> (e.g.,
+// /configs/my-operator/subdir) are rejected. IIB requires the catalog structure
+// to be exactly /configs/<package-name>/.
+func InjectLifecycleJSON(lifecycleJSONPath, buildContextPath, pkg string, entry DockerfileCopyEntry) (bool, error) {
 	if entry.IsFromBuildStage() {
-		return fmt.Errorf("cannot inject lifecycle.json into build stage dependencies (COPY --from=%s)", entry.From)
+		return false, fmt.Errorf("cannot inject lifecycle.json into build stage dependencies (COPY --from=%s)", entry.From)
 	}
 
 	if pkg == "" || pkg == "." || pkg == ".." || strings.ContainsAny(pkg, "/\\") {
-		return fmt.Errorf("invalid package name %q: must not be empty, '.', '..', or contain path separators", pkg)
+		return false, fmt.Errorf("invalid package name %q: must not be empty, '.', '..', or contain path separators", pkg)
 	}
 
 	data, err := os.ReadFile(lifecycleJSONPath)
 	if err != nil {
-		return fmt.Errorf("failed to read lifecycle.json from %q: %w", lifecycleJSONPath, err)
+		return false, fmt.Errorf("failed to read lifecycle.json from %q: %w", lifecycleJSONPath, err)
 	}
 
 	dest := strings.Trim(entry.Dest, "/")
 
 	var pkgFromDest string
 	if strings.HasPrefix(dest, "configs/") {
-		pkgFromDest = strings.SplitN(strings.TrimPrefix(dest, "configs/"), "/", 2)[0]
+		parts := strings.SplitN(strings.TrimPrefix(dest, "configs/"), "/", 2)
+		if len(parts) > 1 {
+			return false, fmt.Errorf("destination %q is not a valid FBC path: expected /configs or /configs/<package-name>", entry.Dest)
+		}
+		pkgFromDest = parts[0]
 	}
 
 	if pkgFromDest != "" && pkgFromDest != pkg {
-		return fmt.Errorf("entry destination %q targets package %q, not %q", entry.Dest, pkgFromDest, pkg)
+		return false, fmt.Errorf("entry destination %q targets package %q, not %q", entry.Dest, pkgFromDest, pkg)
 	}
 
 	injected := false
@@ -69,7 +86,7 @@ func InjectLifecycleJSON(lifecycleJSONPath, buildContextPath, pkg string, entry 
 
 		pkgDir, err := resolveAndValidatePath(buildContextPath, subPath)
 		if err != nil {
-			return fmt.Errorf("invalid source path detected: %w", err)
+			return false, fmt.Errorf("invalid source path detected: %w", err)
 		}
 
 		info, err := os.Stat(pkgDir)
@@ -77,22 +94,40 @@ func InjectLifecycleJSON(lifecycleJSONPath, buildContextPath, pkg string, entry 
 			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
-			return fmt.Errorf("failed to stat package directory %q: %w", pkgDir, err)
+			return false, fmt.Errorf("failed to stat package directory %q: %w", pkgDir, err)
 		}
 
 		if !info.IsDir() {
 			continue
 		}
 
-		if err := os.WriteFile(filepath.Join(pkgDir, "lifecycle.json"), data, os.FileMode(0644)); err != nil {
-			return fmt.Errorf("failed to write lifecycle.json for package %q: %w", pkg, err)
+		destPath := filepath.Join(pkgDir, "lifecycle.json")
+		f, err := os.OpenFile(destPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+		if err != nil {
+			if errors.Is(err, os.ErrExist) {
+				return false, fmt.Errorf("lifecycle.json already exists for package %q at %q, refusing to overwrite", pkg, destPath)
+			}
+			return false, fmt.Errorf("failed to create lifecycle.json for package %q: %w", pkg, err)
+		}
+
+		_, writeErr := f.Write(data)
+		closeErr := f.Close()
+
+		if writeErr != nil {
+			_ = os.Remove(destPath)
+			return false, fmt.Errorf("failed to write lifecycle.json for package %q: %w", pkg, writeErr)
+		}
+
+		if closeErr != nil {
+			_ = os.Remove(destPath)
+			return false, fmt.Errorf("failed to close lifecycle.json for package %q: %w", pkg, closeErr)
 		}
 
 		injected = true
 	}
 	if !injected {
-		return fmt.Errorf("could not find catalog directory for package %q in entry srcs %v", pkg, entry.Srcs)
+		return false, nil
 	}
 
-	return nil
+	return true, nil
 }
