@@ -7,6 +7,28 @@ Go CLI for Konflux operator pipeline tasks
 
 ## Usage
 
+## `fbc` commands
+
+### `fbc get-packages`
+
+Determines the OLM packages included in a File-Based Catalog (FBC) by parsing
+the `COPY`/`ADD` instructions in the provided Dockerfile and inspecting the
+corresponding catalog subdirectories in the build context.
+
+```bash
+operator-foundry fbc get-packages \
+  --dockerfile <path-to-Dockerfile> \
+  --build-context <path-to-build-context> \
+  [--output <path-to-output-file>]
+```
+
+| Scenario | Behavior |
+|---|---|
+| Dockerfile cannot be parsed | Exits with error |
+| Not all OCP versions >= 5.0 | Returns empty output, exit 0 |
+| No `COPY`/`ADD` targeting `/configs` found | Exits with error |
+| No packages found in catalog directories | Exits with error |
+
 ### `fbc inject-lifecycle`
 
 Injects pre-generated `lifecycle.json` files into the catalog source directories
@@ -30,6 +52,28 @@ operator-foundry fbc inject-lifecycle \
 | No matching catalog directory found for package | Exits with error |
 | Invalid package name (path traversal, empty) | Exits with error |
 | Destination path deeper than `/configs/<package-name>` | Exits with error — not a valid FBC path |
+
+---
+
+### `make-result-json`
+
+Generates a Tekton `TEST_OUTPUT` JSON result for use in pipeline tasks.
+
+```bash
+operator-foundry make-result-json \
+  --result <SUCCESS|FAILURE|ERROR|WARNING|SKIPPED> \
+  [--note <note>] \
+  [--namespace <namespace>] \
+  [--successes <n>] \
+  [--failures <n>] \
+  [--warnings <n>]
+```
+
+| Scenario | Behavior |
+|---|---|
+| Invalid result value | Exits with error |
+| `--result` not provided | Exits with error |
+
 ---
 
 ## Development
@@ -53,6 +97,7 @@ make clean   # remove build artifacts
 ```bash
 ./bin/operator-foundry --help
 ./bin/operator-foundry fbc --help
+./bin/operator-foundry fbc get-packages --help
 ./bin/operator-foundry fbc inject-lifecycle --help
 ```
 
