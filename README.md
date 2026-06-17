@@ -9,6 +9,24 @@ Go CLI for Konflux operator pipeline tasks
 
 ## `fbc` commands
 
+### `fbc check-lifecycle-eligibility`
+
+Checks whether the File-Based Catalog (FBC) is eligible for lifecycle
+injection, based on whether all OCP versions targeted by the Dockerfile are
+>= the minimum supported version.
+
+```bash
+operator-foundry fbc check-lifecycle-eligibility \
+  --dockerfile <path-to-Dockerfile> \
+  [--output <path-to-output-file>]
+```
+
+| Scenario | Behavior |
+|---|---|
+| Dockerfile cannot be parsed | Exits with error |
+| All targeted OCP versions >= 5.0 | Writes `true`, exit 0 |
+| Not all targeted OCP versions >= 5.0 | Writes `false`, exit 0 |
+
 ### `fbc get-packages`
 
 Determines the OLM packages included in a File-Based Catalog (FBC) by parsing
@@ -25,28 +43,26 @@ operator-foundry fbc get-packages \
 | Scenario | Behavior |
 |---|---|
 | Dockerfile cannot be parsed | Exits with error |
-| Not all OCP versions >= 5.0 | Returns empty output, exit 0 |
 | No `COPY`/`ADD` targeting `/configs` found | Exits with error |
 | No packages found in catalog directories | Exits with error |
 
 ### `fbc inject-lifecycle`
 
 Injects pre-generated `lifecycle.json` files into the catalog source directories
-for the given OLM packages. Injection is skipped if not all targeted OCP versions
-are >= 5.0.
+for the given OLM packages. Does not check lifecycle-injection eligibility —
+callers should run `fbc check-lifecycle-eligibility` first.
 
 ```bash
 operator-foundry fbc inject-lifecycle \
-  --dockerfile  \
-  --build-context  \
-  --packages  \
-  --lifecycle-dir 
+  --dockerfile <path-to-Dockerfile> \
+  --build-context <path-to-build-context> \
+  --packages <comma-separated-package-names> \
+  --lifecycle-dir <path-to-lifecycle-dir>
 ```
 
 | Scenario | Behavior |
 |---|---|
 | Dockerfile cannot be parsed | Exits with error |
-| Not all OCP versions >= 5.0 | Skips injection silently, exit 0 |
 | `lifecycle.json` missing for a package | Exits with error |
 | lifecycle schema already exists at destination | Exits with error — refuses to overwrite |
 | No matching catalog directory found for package | Exits with error |
@@ -97,6 +113,7 @@ make clean   # remove build artifacts
 ```bash
 ./bin/operator-foundry --help
 ./bin/operator-foundry fbc --help
+./bin/operator-foundry fbc check-lifecycle-eligibility --help
 ./bin/operator-foundry fbc get-packages --help
 ./bin/operator-foundry fbc inject-lifecycle --help
 ```

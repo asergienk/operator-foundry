@@ -33,7 +33,9 @@ func newInjectLifecycleCmd() *cobra.Command {
 		Long: `Injects pre-generated lifecycle.json files into the catalog source
 directories for the given OLM packages.
 
-Lifecycle injection is only performed for OCP versions >= 5.0.`,
+This command does not check OCP eligibility. Callers are expected to have
+already confirmed the Dockerfile is eligible for lifecycle injection via
+"fbc check-lifecycle-eligibility" before calling this command.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return lifecycle.InjectLifecycle(dockerfilePath, buildContextPath, lifecycleDir, packages)
 		},

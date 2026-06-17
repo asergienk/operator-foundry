@@ -29,6 +29,7 @@ func NewFBCCmd() *cobra.Command {
 
 	cmd.AddCommand(newGetPackagesCmd())
 	cmd.AddCommand(newInjectLifecycleCmd())
+	cmd.AddCommand(newCheckLifecycleEligibilityCmd())
 
 	return cmd
 }

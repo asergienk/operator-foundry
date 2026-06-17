@@ -24,40 +24,19 @@ import (
 	"strings"
 
 	"github.com/keilerkonzept/dockerfile-json/pkg/dockerfile"
-	"github.com/konflux-ci/operator-foundry/pkg/ocp"
 )
 
-const lifecycleMinOCPVersion = "5.0"
-
-// InjectLifecycle is the main entry point for the lifecycle injection workflow.
-// It parses the target Dockerfile, checks if all targeted OCP versions require
-// lifecycle injection (>= 5.0), and injects pre-generated lifecycle.json files
-// from lifecycleDir into the catalog source directories for the given packages.
-// Lifecycle injection is skipped if any OCP version is < 5.0.
+// InjectLifecycle injects pre-generated lifecycle.json files from lifecycleDir
+// into the catalog source directories for the given packages. This function
+// does not check OCP eligibility; callers are expected to have already
+// confirmed eligibility via CheckLifecycleEligibility before calling
+// this function.
 //
-// Returns nil on success or if injection is skipped due to OCP version constraints.
 // Returns an error if any package fails to inject.
 func InjectLifecycle(dockerfilePath, buildContextPath, lifecycleDir, packages string) error {
 	d, err := dockerfile.Parse(dockerfilePath)
 	if err != nil {
 		return fmt.Errorf("failed to parse dockerfile %q: %w", dockerfilePath, err)
-	}
-
-	ocpVersions, err := ocp.GetOCPVersionsFromDockerfile(d)
-	if err != nil {
-		return fmt.Errorf("failed to get OCP versions: %w", err)
-	}
-
-	gte, err := ocp.AllOCPVersionsGTE(ocpVersions, lifecycleMinOCPVersion)
-	if err != nil {
-		return fmt.Errorf("failed to compare OCP versions: %w", err)
-	}
-	if !gte {
-		slog.Info("not all OCP versions >= 5.0, skipping lifecycle injection",
-			"versions", ocpVersions,
-			"dockerfile", dockerfilePath,
-		)
-		return nil
 	}
 
 	entries, err := ParseCopyInstructionsForConfigs(d)
