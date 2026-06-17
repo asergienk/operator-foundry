@@ -18,35 +18,16 @@ package lifecycle
 
 import (
 	"fmt"
-	"log/slog"
 
 	"github.com/keilerkonzept/dockerfile-json/pkg/dockerfile"
-	"github.com/konflux-ci/operator-foundry/pkg/ocp"
 )
 
-// GetPackages parses the Dockerfile and extracts OLM package names.
-// Returns an empty slice if not all targeted OCP versions are >= 5.0.
+// GetPackages parses the Dockerfile and extracts OLM package names from its
+// COPY instructions.
 func GetPackages(dockerfilePath, buildContextPath string) ([]string, error) {
 	d, err := dockerfile.Parse(dockerfilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse dockerfile %q: %w", dockerfilePath, err)
-	}
-
-	ocpVersions, err := ocp.GetOCPVersionsFromDockerfile(d)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get OCP versions: %w", err)
-	}
-
-	gte, err := ocp.AllOCPVersionsGTE(ocpVersions, lifecycleMinOCPVersion)
-	if err != nil {
-		return nil, fmt.Errorf("failed to compare OCP versions: %w", err)
-	}
-	if !gte {
-		slog.Info("not all OCP versions >= 5.0, skipping package extraction",
-			"versions", ocpVersions,
-			"dockerfile", dockerfilePath,
-		)
-		return []string{}, nil
 	}
 
 	entries, err := ParseCopyInstructionsForConfigs(d)

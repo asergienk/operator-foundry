@@ -1,0 +1,64 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package lifecycle
+
+import (
+	"fmt"
+	"log/slog"
+
+	"github.com/keilerkonzept/dockerfile-json/pkg/dockerfile"
+	"github.com/konflux-ci/operator-foundry/pkg/ocp"
+)
+
+const lifecycleMinOCPVersion = "5.0"
+
+// CheckLifecycleEligibility parses dockerfilePath and reports whether all
+// targeted OCP versions are >= lifecycleMinOCPVersion, i.e. whether the FBC
+// is eligible for lifecycle injection.
+//
+// Returns (false, err) if the Dockerfile cannot be parsed, if OCP versions
+// cannot be determined from the Dockerfile (e.g. malformed or missing
+// version label), or if version comparison fails (e.g. invalid version
+// format). Returns (false, nil) if the Dockerfile parses successfully but
+// at least one targeted OCP version is below lifecycleMinOCPVersion.
+// Returns (true, nil) if all targeted OCP versions are >= lifecycleMinOCPVersion.
+func CheckLifecycleEligibility(dockerfilePath string) (bool, error) {
+	d, err := dockerfile.Parse(dockerfilePath)
+	if err != nil {
+		return false, fmt.Errorf("failed to parse dockerfile %q: %w", dockerfilePath, err)
+	}
+
+	ocpVersions, err := ocp.GetOCPVersionsFromDockerfile(d)
+	if err != nil {
+		return false, fmt.Errorf("failed to get OCP versions: %w", err)
+	}
+
+	gte, err := ocp.AllOCPVersionsGTE(ocpVersions, lifecycleMinOCPVersion)
+	if err != nil {
+		return false, fmt.Errorf("failed to compare OCP versions: %w", err)
+	}
+
+	if !gte {
+		slog.Info("not all OCP versions >= minimum version, not eligible for lifecycle injection",
+			"min_version", lifecycleMinOCPVersion,
+			"versions", ocpVersions,
+			"dockerfile", dockerfilePath,
+		)
+	}
+
+	return gte, nil
+}

@@ -19,34 +19,37 @@ package fbc
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/konflux-ci/operator-foundry/pkg/lifecycle"
 	"github.com/spf13/cobra"
 )
 
-func newGetPackagesCmd() *cobra.Command {
+func newCheckLifecycleEligibilityCmd() *cobra.Command {
 	var dockerfilePath string
-	var buildContextPath string
 	var outputFile string
 
 	cmd := &cobra.Command{
-		Use:   "get-packages",
-		Short: "Determine OLM package names targeted by an FBC Dockerfile",
-		Long: `Determines the OLM packages included in a File-Based Catalog (FBC)
-by parsing the COPY/ADD instructions in the provided Dockerfile
-and inspecting the corresponding catalog subdirectories in the build context.`,
+		Use:   "check-lifecycle-eligibility",
+		Short: "Check whether an FBC is eligible for lifecycle injection",
+		Long: `Checks whether the File-Based Catalog (FBC) is eligible for
+lifecycle injection, based on whether all OCP versions targeted by
+the Dockerfile are >= the minimum supported version.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			packages, err := lifecycle.GetPackages(dockerfilePath, buildContextPath)
+			eligible, err := lifecycle.CheckLifecycleEligibility(dockerfilePath)
 			if err != nil {
 				return err
 			}
-			output := strings.Join(packages, ",")
+
+			output := "false"
+			if eligible {
+				output = "true"
+			}
+
 			if outputFile != "" {
 				if err := os.WriteFile(outputFile, []byte(output+"\n"), 0644); err != nil {
 					return err
 				}
-			} else if len(packages) > 0 {
+			} else {
 				fmt.Println(output)
 			}
 			return nil
@@ -54,13 +57,10 @@ and inspecting the corresponding catalog subdirectories in the build context.`,
 	}
 
 	cmd.Flags().StringVar(&dockerfilePath, "dockerfile", "", "Path to the FBC Dockerfile (required)")
-	cmd.Flags().StringVar(&buildContextPath, "build-context", "", "Path to the build context directory (required)")
-	cmd.Flags().StringVar(&outputFile, "output", "", "Path to write package names (default: stdout)")
+	cmd.Flags().StringVar(&outputFile, "output", "", "Path to write eligibility result (default: stdout)")
 
-	for _, flag := range []string{"dockerfile", "build-context"} {
-		if err := cmd.MarkFlagRequired(flag); err != nil {
-			panic(err)
-		}
+	if err := cmd.MarkFlagRequired("dockerfile"); err != nil {
+		panic(err)
 	}
 
 	return cmd

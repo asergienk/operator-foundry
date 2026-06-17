@@ -43,27 +43,6 @@ COPY catalog /configs
 	}
 }
 
-func TestGetPackages_ReturnsEmpty_WhenNoOCPVersionGTE5(t *testing.T) {
-	base := t.TempDir()
-
-	if err := os.MkdirAll(filepath.Join(base, "catalog", "my-operator"), 0755); err != nil {
-		t.Fatalf("failed to create package dir: %v", err)
-	}
-
-	dockerfilePath := writeTestDockerfile(t, base, `FROM ubuntu
-LABEL com.redhat.fbc.openshift.version=["4.20"]
-COPY catalog /configs
-`)
-
-	packages, err := GetPackages(dockerfilePath, base)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(packages) != 0 {
-		t.Errorf("got %v, want empty slice", packages)
-	}
-}
-
 func TestGetPackages_MultiplePackages(t *testing.T) {
 	base := t.TempDir()
 
@@ -96,27 +75,6 @@ COPY catalog /configs
 		if !found {
 			t.Errorf("expected package %q in result, got %v", name, packages)
 		}
-	}
-}
-
-func TestGetPackages_MixedVersions_ReturnsEmpty(t *testing.T) {
-	base := t.TempDir()
-
-	if err := os.MkdirAll(filepath.Join(base, "catalog", "my-operator"), 0755); err != nil {
-		t.Fatalf("failed to create package dir: %v", err)
-	}
-
-	dockerfilePath := writeTestDockerfile(t, base, `FROM ubuntu
-LABEL com.redhat.fbc.openshift.version=["4.20","5.0"]
-COPY catalog /configs
-`)
-
-	packages, err := GetPackages(dockerfilePath, base)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(packages) != 0 {
-		t.Errorf("got %v, want empty — not all versions >= 5.0", packages)
 	}
 }
 

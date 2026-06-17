@@ -67,38 +67,6 @@ COPY catalog /configs
 	}
 }
 
-func TestInjectLifecycle_SkipsInjection_WhenNoOCPVersionGTE5(t *testing.T) {
-	base := t.TempDir()
-	lifecycleDir := t.TempDir()
-
-	pkgDir := filepath.Join(base, "catalog", "my-operator")
-	if err := os.MkdirAll(pkgDir, 0755); err != nil {
-		t.Fatalf("failed to create package dir: %v", err)
-	}
-
-	// set up lifecycle file so test doesn't accidentally pass due to missing file
-	pkgLifecycleDir := filepath.Join(lifecycleDir, "my-operator")
-	if err := os.MkdirAll(pkgLifecycleDir, 0755); err != nil {
-		t.Fatalf("failed to create lifecycle pkg dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(pkgLifecycleDir, "lifecycle.json"), []byte(`{}`), 0644); err != nil {
-		t.Fatalf("failed to write lifecycle file: %v", err)
-	}
-
-	dockerfilePath := writeTestDockerfile(t, base, `FROM ubuntu
-LABEL com.redhat.fbc.openshift.version=["4.20"]
-COPY catalog /configs
-`)
-
-	if err := InjectLifecycle(dockerfilePath, base, lifecycleDir, "my-operator"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if _, err := os.Stat(filepath.Join(pkgDir, "lifecycle.json")); err == nil {
-		t.Fatal("expected lifecycle.json to NOT be injected for OCP < 5.0")
-	}
-}
-
 func TestInjectLifecycle_MultiplePackages(t *testing.T) {
 	base := t.TempDir()
 	lifecycleDir := t.TempDir()
@@ -156,38 +124,6 @@ func TestInjectLifecycle_InvalidDockerfile_ReturnsError(t *testing.T) {
 	err := InjectLifecycle("/nonexistent/Dockerfile", t.TempDir(), t.TempDir(), "my-operator")
 	if err == nil {
 		t.Fatal("expected error for nonexistent Dockerfile, got nil")
-	}
-}
-
-func TestInjectLifecycle_MixedOCPVersions_SkipsWhenNotAllGTE5(t *testing.T) {
-	base := t.TempDir()
-	lifecycleDir := t.TempDir()
-
-	pkgDir := filepath.Join(base, "catalog", "my-operator")
-	if err := os.MkdirAll(pkgDir, 0755); err != nil {
-		t.Fatalf("failed to create package dir: %v", err)
-	}
-
-	dockerfilePath := writeTestDockerfile(t, base, `FROM ubuntu
-LABEL com.redhat.fbc.openshift.version=["4.20","5.0"]
-COPY catalog /configs
-`)
-
-	lifecycleData := []byte(`{"schema":"io.openshift.operators.lifecycles.v1alpha1"}`)
-	pkgLifecycleDir := filepath.Join(lifecycleDir, "my-operator")
-	if err := os.MkdirAll(pkgLifecycleDir, 0755); err != nil {
-		t.Fatalf("failed to create lifecycle pkg dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(pkgLifecycleDir, "lifecycle.json"), lifecycleData, 0644); err != nil {
-		t.Fatalf("failed to write lifecycle file: %v", err)
-	}
-
-	if err := InjectLifecycle(dockerfilePath, base, lifecycleDir, "my-operator"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if _, err := os.Stat(filepath.Join(pkgDir, "lifecycle.json")); err == nil {
-		t.Fatal("expected lifecycle.json to NOT be injected when not all versions >= 5.0")
 	}
 }
 
