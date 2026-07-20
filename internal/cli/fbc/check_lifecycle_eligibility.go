@@ -39,7 +39,6 @@ the Dockerfile are >= the minimum supported version.`,
 			if err != nil {
 				return err
 			}
-
 			output := "false"
 			if eligible {
 				output = "true"
