@@ -53,6 +53,11 @@ If a `COPY`/`ADD` source path references a build ARG (e.g. `COPY
 it resolves to the same path the image is actually built with. If omitted,
 the ARG's own default value from the Dockerfile is used instead.
 
+`COPY --from=<stage>` instructions are traced back through the named builder
+stage to their build-context source paths, so multi-stage Dockerfiles where a
+builder stage transforms the catalog before the final stage copies it are
+handled correctly.
+
 ```bash
 operator-foundry fbc get-packages \
   --dockerfile <path-to-Dockerfile> \
@@ -73,9 +78,13 @@ Injects pre-generated `lifecycle.json` files into the catalog source directories
 for the given OLM packages. Does not check lifecycle-injection eligibility —
 callers should run `fbc check-lifecycle-eligibility` first.
 
-If a COPY/ADD source path references a build ARG (e.g. COPY ./${INPUT_DIR}/ /configs/my-operator), pass its value with --build-arg so
+If a `COPY`/`ADD` source path references a build ARG (e.g. `COPY ./${INPUT_DIR}/ /configs/my-operator`), pass its value with `--build-arg` so
 the actual catalog directory on disk can be located. If omitted, the ARG's
 own default value from the Dockerfile is used instead.
+
+`COPY --from=<stage>` instructions targeting `/configs` are traced back
+through the named builder stage to their build-context source paths.
+`lifecycle.json` is written there so it is included when the image is built.
 
 ```bash
 operator-foundry fbc inject-lifecycle \

@@ -43,5 +43,7 @@ func GetPackages(dockerfilePath, buildContextPath string, buildArgs map[string]s
 		return nil, fmt.Errorf("failed to parse COPY instructions: %w", err)
 	}
 
+	entries = ResolveBuilderStageEntries(d, entries, buildArgs)
+
 	return ExtractPackageNames(entries, buildContextPath)
 }

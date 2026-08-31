@@ -162,3 +162,27 @@ COPY ./catalog /configs/my-operator
 		t.Errorf("got %v, want [my-operator]", packages)
 	}
 }
+
+func TestGetPackages_BuilderStagePattern_TracedToContext(t *testing.T) {
+	// COPY --from=builder targeting /configs/<pkg> must be resolved back to the
+	// build context so that the package name can be extracted from the dest path.
+	// Without ResolveBuilderStageEntries, all entries remain IsFromBuildStage and
+	// ExtractPackageNames skips them, returning an error.
+	base := t.TempDir()
+
+	dockerfilePath := writeTestDockerfile(t, base, `FROM golang:1.21 AS builder
+COPY .konflux/catalog/ /app/.konflux/catalog/
+RUN make fix-catalog-name
+
+FROM ubuntu
+COPY --from=builder /app/.konflux/catalog/my-operator/ /configs/my-operator
+`)
+
+	packages, err := GetPackages(dockerfilePath, base, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(packages) != 1 || packages[0] != "my-operator" {
+		t.Errorf("got %v, want [my-operator]", packages)
+	}
+}

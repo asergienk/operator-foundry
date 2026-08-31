@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/keilerkonzept/dockerfile-json/pkg/dockerfile"
@@ -148,6 +150,242 @@ func updateEnvState(command interface{}, envMap map[string]string, envKeys map[s
 			}
 		}
 	}
+}
+
+// ResolveBuilderStageEntries attempts to resolve COPY --from=<stage> entries back
+// to their build-context source paths by tracing through the named build stage's
+// own COPY instructions. Entries that cannot be resolved remain unchanged
+// (IsFromBuildStage() still returns true for them).
+//
+// Limitation: RUN commands in the builder stage that rename or move paths cannot
+// be accounted for — the trace assumes build-context paths survive into the stage
+// verbatim. If a RUN renames the catalog directory itself, the resolved path will
+// not exist on disk and injection will fail with a clear "directory not found" error.
+func ResolveBuilderStageEntries(d *dockerfile.Dockerfile, entries []DockerfileCopyEntry, buildArgs map[string]string) []DockerfileCopyEntry {
+	result := make([]DockerfileCopyEntry, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsFromBuildStage() {
+			result = append(result, entry)
+			continue
+		}
+		if resolved := tryResolveBuildStageEntry(d, entry, buildArgs); resolved != nil {
+			slog.Info("resolved build stage entry to build context", "from", entry.From, "srcs", resolved.Srcs)
+			result = append(result, *resolved)
+		} else {
+			result = append(result, entry)
+		}
+	}
+	return result
+}
+
+// tryResolveBuildStageEntry traces a single COPY --from=<stage> entry back to a
+// build-context DockerfileCopyEntry. Returns nil if the named stage is not found,
+// itself copies its catalog path from another stage, or the source path cannot be
+// mapped back to any build-context COPY instruction.
+func tryResolveBuildStageEntry(d *dockerfile.Dockerfile, entry DockerfileCopyEntry, buildArgs map[string]string) *DockerfileCopyEntry {
+	fromIdx, err := strconv.Atoi(entry.From)
+	var targetStage *dockerfile.Stage
+	for i, stage := range d.Stages {
+		if stage.Stage.Name == entry.From || (err == nil && i == fromIdx) {
+			targetStage = stage
+			break
+		}
+	}
+	if targetStage == nil {
+		return nil
+	}
+
+	stageCopies := buildContextCopiesFromStage(targetStage, d, buildArgs)
+
+	resolvedSrcs := make([]string, 0, len(entry.Srcs))
+	for _, src := range entry.Srcs {
+		ctxPath := mapStagePathToBuildContext(src, stageCopies)
+		if ctxPath == "" {
+			return nil
+		}
+		resolvedSrcs = append(resolvedSrcs, ctxPath)
+	}
+
+	return &DockerfileCopyEntry{
+		Srcs: resolvedSrcs,
+		Dest: entry.Dest,
+		From: "",
+	}
+}
+
+// resolveInheritedStageState returns the effective ENV map, env-key set, and WORKDIR
+// that a child stage inherits from its named parent within the same Dockerfile.
+// If the base is an external image, empty defaults (envMap={}, workdir="/") are
+// returned. The function recurses up the ancestor chain so that grandparent state
+// is included; visited guards against cycles.
+func resolveInheritedStageState(stage *dockerfile.Stage, d *dockerfile.Dockerfile, buildArgs map[string]string, visited map[string]bool) (map[string]string, map[string]bool, string) {
+	envMap := make(map[string]string)
+	envKeys := make(map[string]bool)
+	workdir := "/"
+
+	globalArgs := buildGlobalArgMap(d)
+	expandGlobal := func(key string) string {
+		if val, ok := buildArgs[key]; ok {
+			return val
+		}
+		if val, ok := globalArgs[key]; ok {
+			return val
+		}
+		return ""
+	}
+	baseName := os.Expand(stage.BaseName, expandGlobal)
+
+	var parent *dockerfile.Stage
+	for _, s := range d.Stages {
+		if s.Stage.Name == baseName {
+			parent = s
+			break
+		}
+	}
+	if parent == nil || visited[baseName] {
+		return envMap, envKeys, workdir
+	}
+	visited[baseName] = true
+
+	envMap, envKeys, workdir = resolveInheritedStageState(parent, d, buildArgs, visited)
+
+	// No warning for unresolved variables: these are internal builder-stage variables,
+	// not user-facing COPY instructions, so a missing value is not actionable.
+	expand := func(key string) string {
+		if val, ok := envMap[key]; ok {
+			return val
+		}
+		return ""
+	}
+	for _, cmd := range parent.Commands {
+		updateEnvState(cmd.Command, envMap, envKeys, globalArgs, buildArgs)
+		if wc, ok := cmd.Command.(*instructions.WorkdirCommand); ok {
+			resolved := os.Expand(wc.Path, expand)
+			if filepath.IsAbs(resolved) {
+				workdir = resolved
+			} else {
+				workdir = filepath.Join(workdir, resolved)
+			}
+		}
+	}
+	return envMap, envKeys, workdir
+}
+
+// buildContextCopiesFromStage collects all COPY/ADD instructions in the given stage
+// that source from the build context (no --from flag), with variables resolved.
+// WORKDIR instructions within the stage are tracked so that relative COPY destinations
+// are resolved to their absolute paths. ENV and WORKDIR inherited from a named parent
+// stage are applied as the initial state before processing the stage's own commands.
+func buildContextCopiesFromStage(stage *dockerfile.Stage, d *dockerfile.Dockerfile, buildArgs map[string]string) []DockerfileCopyEntry {
+	globalArgs := buildGlobalArgMap(d)
+	envMap, envKeys, workdir := resolveInheritedStageState(stage, d, buildArgs, make(map[string]bool))
+
+	// No warning for unresolved variables: these are internal builder-stage variables,
+	// not user-facing COPY instructions, so a missing value is not actionable.
+	expand := func(key string) string {
+		if val, ok := envMap[key]; ok {
+			return val
+		}
+		return ""
+	}
+
+	var copies []DockerfileCopyEntry
+	for _, cmd := range stage.Commands {
+		updateEnvState(cmd.Command, envMap, envKeys, globalArgs, buildArgs)
+
+		if wc, ok := cmd.Command.(*instructions.WorkdirCommand); ok {
+			resolved := os.Expand(wc.Path, expand)
+			if filepath.IsAbs(resolved) {
+				workdir = resolved
+			} else {
+				workdir = filepath.Join(workdir, resolved)
+			}
+			continue
+		}
+
+		var srcs []string
+		var dest, from string
+		switch c := cmd.Command.(type) {
+		case *instructions.AddCommand:
+			if len(c.SourcePaths) == 0 {
+				continue
+			}
+			srcs, dest = c.SourcePaths, c.DestPath
+		case *instructions.CopyCommand:
+			if len(c.SourcePaths) == 0 {
+				continue
+			}
+			srcs, dest, from = c.SourcePaths, c.DestPath, c.From
+		default:
+			continue
+		}
+
+		if os.Expand(from, expand) != "" {
+			continue // nested --from= inside the builder stage; skip, can't trace further
+		}
+
+		resolvedDest := os.Expand(dest, expand)
+		if !filepath.IsAbs(resolvedDest) {
+			resolvedDest = filepath.Join(workdir, resolvedDest)
+		}
+
+		resolvedSrcs := make([]string, len(srcs))
+		for i, s := range srcs {
+			resolvedSrcs[i] = os.Expand(s, expand)
+		}
+		copies = append(copies, DockerfileCopyEntry{
+			Srcs: resolvedSrcs,
+			Dest: resolvedDest,
+		})
+	}
+	return copies
+}
+
+// mapStagePathToBuildContext maps a path inside a build stage back to its
+// corresponding build-context path using the stage's COPY instruction set.
+// Returns "" if no COPY entry covers the path or the match is ambiguous
+// (multiple sources and the path is a sub-path of the destination).
+//
+// When multiple COPY instructions cover stagePath, the most specific one
+// (deepest destination prefix) is used. This avoids spurious matches from
+// broad COPYs (e.g. COPY Makefile /app) that share a top-level destination
+// with a more targeted COPY (e.g. COPY .konflux/catalog/ /app/.konflux/catalog/).
+//
+// Example: stage has COPY .konflux/catalog/ /app/.konflux/catalog/
+// and stagePath is /app/.konflux/catalog/my-operator →
+// returns .konflux/catalog/my-operator
+func mapStagePathToBuildContext(stagePath string, stageCopies []DockerfileCopyEntry) string {
+	stagePath = filepath.Clean(stagePath)
+
+	bestResult := ""
+	bestDepth := -1
+
+	for _, c := range stageCopies {
+		dest := filepath.Clean(c.Dest)
+		rel, err := filepath.Rel(dest, stagePath)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			continue
+		}
+		if len(c.Srcs) != 1 {
+			// Multiple sources: can't determine which src owns a sub-path.
+			if rel == "." {
+				return "" // ambiguous exact match
+			}
+			continue
+		}
+		depth := strings.Count(dest, string(filepath.Separator))
+		if depth < bestDepth {
+			continue
+		}
+		src := filepath.Clean(c.Srcs[0])
+		if rel == "." {
+			bestResult = src
+		} else {
+			bestResult = filepath.Join(src, rel)
+		}
+		bestDepth = depth
+	}
+	return bestResult
 }
 
 // createConfigsEntry expands variables and validates the COPY/ADD instruction.

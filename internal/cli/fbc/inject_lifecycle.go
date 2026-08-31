@@ -40,7 +40,10 @@ already confirmed the Dockerfile is eligible for lifecycle injection via
 
 If a COPY/ADD source path references a build ARG (e.g.
 COPY ./${INPUT_DIR}/ /configs/my-operator), pass its value with --build-arg so
-the actual catalog directory on disk can be located.`,
+the actual catalog directory on disk can be located.
+
+COPY --from=<stage> instructions targeting /configs are traced back through
+the named builder stage to their build-context source paths.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			buildArgs, err := parseBuildArgs(buildArgFlags)
 			if err != nil {
